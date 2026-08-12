@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chi tiêu gia đình</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+      "firebase/database": "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js",
+      "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
+      "js/": "./js/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="logo">💰</span>
+      <h1>Chi tiêu gia đình</h1>
+    </div>
+    <button id="lockBtn" class="lock-btn" title="Khoá/Mở khoá sửa"><span id="lockIcon">🔒</span></button>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-view="overview">Tổng quan</button>
+    <button class="tab" data-view="expenses">Chi tiêu</button>
+    <button class="tab" data-view="members">Thành viên</button>
+  </nav>
+
+  <main id="view"></main>
+
+  <div id="toast" class="toast"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
