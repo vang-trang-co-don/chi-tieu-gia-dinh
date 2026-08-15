@@ -301,6 +301,9 @@ input.input[type="number"] {
 .day-filter .input { flex: 1; }
 .day-filter .btn { flex: 0 0 auto; }
 
+.board-toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.board-toolbar .btn { padding: 7px 12px; font-size: 13px; }
+
 .board { display: flex; gap: 12px; overflow-x: auto; align-items: flex-start; padding-bottom: 8px; }
 .board-col {
   flex: 0 0 250px;
@@ -320,11 +323,24 @@ input.input[type="number"] {
   border-radius: 9px;
   padding: 10px 12px;
   margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, outline 0.15s;
 }
+.debt-card:hover { border-color: var(--accent); }
+.debt-card.sel { outline: 2px solid var(--accent); border-color: var(--accent); }
 .debt-card.paid { opacity: 0.55; }
 .debt-card.paid .dc-amt { color: var(--up); }
-.dc-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.dc-title { font-weight: 600; font-size: 14px; }
+.dc-top { display: flex; align-items: center; gap: 8px; }
+.sel-dot {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: transparent;
+}
+.debt-card.sel .sel-dot { background: var(--accent); border-color: var(--accent); }
+.dc-title { font-weight: 600; font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-meta { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
 .dc-amt { font-weight: 700; font-size: 15px; margin-top: 6px; color: var(--down); }
 .col-empty { color: var(--text-dim); font-size: 13px; text-align: center; padding: 12px 0; }

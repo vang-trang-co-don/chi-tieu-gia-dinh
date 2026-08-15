@@ -395,6 +395,25 @@ async function togglePaid(expenseId, memberId) {
   });
 }
 
+// Đánh dấu đã trả cho nhiều card trong 1 lần save.
+async function markPaidMany(items) {
+  const s = getState();
+  const byExp = new Map();
+  for (const i of items) {
+    if (!byExp.has(i.expenseId)) byExp.set(i.expenseId, []);
+    byExp.get(i.expenseId).push(i.memberId);
+  }
+  await save({
+    ...s,
+    expenses: s.expenses.map((e) => {
+      if (!byExp.has(e.id)) return e;
+      const paid = { ...(e.paid || {}) };
+      for (const mid of byExp.get(e.id)) paid[mid] = true;
+      return { ...e, paid };
+    }),
+  });
+}
+
 async function addMember(name) {
   const s = getState();
   const member = { id: genId(), name };
@@ -473,6 +492,7 @@ let view = "overview";
 let selMonth = null;
 let editingId = null;
 let hidePaid = true;
+let selCards = new Set();
 
 function pickUnit(amount) {
   if (amount && amount % 1000000 === 0) return { by: 1000000, label: "triệu" };
@@ -843,12 +863,15 @@ function renderDebts() {
     const total = shown.reduce((t, d) => t + d.amount, 0);
     const cards = shown.length
       ? shown.map((d) => {
+          const key = `${d.e.id}::${m.id}`;
+          const sel = unlocked && selCards.has(key);
           const btn = unlocked
             ? `<button class="pay-btn ${d.paid ? "done" : ""}" data-pay="${d.e.id}" data-mem="${m.id}" title="${d.paid ? "Huỷ đã trả" : "Đánh dấu đã trả"}">${d.paid ? "✓" : "○"}</button>`
             : "";
           return `
-            <div class="debt-card ${d.paid ? "paid" : ""}">
+            <div class="debt-card ${d.paid ? "paid" : ""} ${sel ? "sel" : ""}" ${unlocked ? `data-sel-key="${key}"` : ""}>
               <div class="dc-top">
+                ${unlocked ? `<span class="sel-dot"></span>` : ""}
                 <span class="dc-title">${esc(d.e.title)}</span>${btn}
               </div>
               <div class="dc-meta">nợ ${esc(d.payer.name)} · ${esc(fmtDate(d.e.date))}</div>
@@ -867,6 +890,14 @@ function renderDebts() {
       </div>`;
   }).join("");
 
+  const toolbar = unlocked ? `
+    <div class="board-toolbar">
+      <button class="btn" data-select-all>Chọn hết</button>
+      ${selCards.size ? `
+        <button class="btn primary" data-mark-paid>✓ Đã trả (${selCards.size})</button>
+        <button class="btn" data-clear-sel>Bỏ chọn</button>` : ""}
+    </div>` : "";
+
   $view.innerHTML = `
     <div class="day-filter">
       <select class="input" id="monthSel" aria-label="Chọn tháng">
@@ -874,6 +905,7 @@ function renderDebts() {
       </select>
       <button class="btn" data-hide-paid>${hidePaid ? "Hiện đã trả" : "Ẩn đã trả"}</button>
     </div>
+    ${toolbar}
     ${members.length ? `<div class="board">${colHtml}</div>` : '<div class="empty">Chưa có thành viên</div>'}
   `;
 }
@@ -884,6 +916,7 @@ function bindEvents() {
     const btn = e.target.closest(".tab");
     if (!btn) return;
     view = btn.dataset.view;
+    selCards = new Set();
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === btn));
     render();
   });
@@ -904,12 +937,45 @@ function bindEvents() {
     const hp = e.target.closest("[data-hide-paid]");
     if (hp) {
       hidePaid = !hidePaid;
+      selCards = new Set();
       render();
       return;
     }
     const payBtn = e.target.closest("[data-pay]");
     if (payBtn) {
       await togglePaid(payBtn.dataset.pay, payBtn.dataset.mem);
+      render();
+      return;
+    }
+    const selectAll = e.target.closest("[data-select-all]");
+    if (selectAll) {
+      selCards = new Set([...document.querySelectorAll("#view .debt-card")].map((c) => c.dataset.selKey));
+      render();
+      return;
+    }
+    const markPaid = e.target.closest("[data-mark-paid]");
+    if (markPaid) {
+      const items = [...selCards].map((k) => {
+        const [expenseId, memberId] = k.split("::");
+        return { expenseId, memberId };
+      });
+      await markPaidMany(items);
+      selCards = new Set();
+      toast(`Đã đánh dấu ${items.length} khoản đã trả`);
+      render();
+      return;
+    }
+    const clearSel = e.target.closest("[data-clear-sel]");
+    if (clearSel) {
+      selCards = new Set();
+      render();
+      return;
+    }
+    const selCard = e.target.closest("[data-sel-key]");
+    if (selCard) {
+      const k = selCard.dataset.selKey;
+      if (selCards.has(k)) selCards.delete(k);
+      else selCards.add(k);
       render();
       return;
     }
@@ -926,6 +992,7 @@ function bindEvents() {
     if (edit) {
       editingId = edit.dataset.edit;
       view = "expenses";
+      selCards = new Set();
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === "expenses"));
       render();
       return;
@@ -948,6 +1015,7 @@ function bindEvents() {
   document.addEventListener("change", async (e) => {
     if (e.target && e.target.id === "monthSel") {
       selMonth = e.target.value;
+      selCards = new Set();
       render();
     }
   });
