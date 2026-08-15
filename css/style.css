@@ -137,6 +137,18 @@ body {
 }
 .input:focus { outline: none; border-color: var(--accent); }
 
+/* cho các ô trong grid được co lại, không bị tràn sang cột khác */
+.expense-form > .field { min-width: 0; }
+
+/* iOS Safari: input[type=date] có width nội tại rất to, làm tràn cột "Số tiền"/"Người trả" */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 14px;
+}
+
 /* ẩn nút tăng/giảm của input number */
 input.input[type="number"]::-webkit-outer-spin-button,
 input.input[type="number"]::-webkit-inner-spin-button {
