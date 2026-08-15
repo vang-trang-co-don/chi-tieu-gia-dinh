@@ -459,9 +459,9 @@ function openLoginModal() {
 // ---------------- boot ----------------
 (async () => {
   await init();
-  await initAuth();
+  render();
+  bindEvents();
   subscribe(() => render());
   subscribeAuth(() => render());
-  bindEvents();
-  render();
+  initAuth().catch((e) => console.warn("auth init failed", e));
 })();

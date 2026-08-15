@@ -4,7 +4,369 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Chi tiêu gia đình</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://chi-tieu-gia-dinh-a8be5-default-rtdb.asia-southeast1.firebasedatabase.app" crossorigin />
+  <link rel="preconnect" href="https://chi-tieu-gia-dinh-a8be5.firebaseapp.com" crossorigin />
+  <style>
+:root {
+  --bg: #0f1115;
+  --surface: #171a21;
+  --surface-2: #1e232c;
+  --border: #2a303c;
+  --text: #e7eaf0;
+  --text-dim: #9aa4b2;
+  --accent: #5b8cff;
+  --accent-hover: #6d9aff;
+  --up: #46c07e;
+  --down: #ff6b6b;
+  --warn: #f0b23b;
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  --radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  line-height: 1.55;
+  min-height: 100vh;
+  font-size: 17px;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+  background-color: rgba(15, 17, 21, 0.85);
+}
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand .logo { font-size: 22px; }
+.brand h1 { font-size: 19px; margin: 0; font-weight: 600; }
+
+.lock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.lock-btn:hover { border-color: var(--accent); color: var(--text); }
+.lock-btn.unlocked { color: var(--up); border-color: var(--up); background: rgba(70, 192, 126, 0.12); }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  position: sticky;
+  top: 69px;
+  z-index: 9;
+}
+.tab {
+  flex: 1;
+  max-width: 180px;
+  padding: 10px 0;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 15.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.tab:hover { background: var(--surface); color: var(--text); }
+.tab.active { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
+
+#view { padding: 18px 20px 60px; max-width: 760px; margin: 0 auto; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.card-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-dim);
+  margin: 0 0 10px;
+}
+
+.empty { color: var(--text-dim); text-align: center; padding: 30px 0; }
+.hidden { display: none !important; }
+
+.btn {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 9px 15px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.danger { color: var(--down); border-color: rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.08); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.input, select.input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 15px;
+  width: 100%;
+  font-family: inherit;
+}
+.input:focus { outline: none; border-color: var(--accent); }
+
+/* cho các ô trong grid được co lại, không bị tràn sang cột khác */
+.expense-form > .field { min-width: 0; }
+
+/* iOS Safari: input[type=date] có width nội tại rất to, làm tràn cột "Số tiền"/"Người trả" */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 14px;
+}
+
+/* ẩn nút tăng/giảm của input number */
+input.input[type="number"]::-webkit-outer-spin-button,
+input.input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input.input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.expense-form {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  gap: 10px;
+  align-items: end;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.field label {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.split-toggle { display: flex; gap: 6px; }
+.split-toggle .btn { flex: 1; padding: 8px 6px; font-size: 12px; }
+.split-toggle .btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.pick-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick-btn {
+  padding: 7px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.pick-btn:hover { border-color: var(--accent); }
+.pick-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.day-group { margin-bottom: 20px; }
+.day-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin: 0 0 8px;
+}
+.expense {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.expense-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.expense-title { font-size: 16.5px; font-weight: 600; margin: 0; }
+.expense-amount { font-size: 16.5px; font-weight: 700; color: var(--down); white-space: nowrap; }
+.expense-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13.5px; color: var(--text-dim); }
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.debtors { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.debtor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 5px 7px 5px 11px;
+}
+.debtor .amt { font-weight: 600; }
+.debtor.paid { opacity: 0.6; }
+.debtor.paid .amt { color: var(--up); }
+
+.pay-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-dim);
+  padding: 3px 6px;
+  border-radius: 99px;
+  font-size: 14px;
+}
+.pay-btn:hover { background: var(--surface); }
+.pay-btn.done { color: var(--up); }
+
+.expense-actions { display: flex; gap: 6px; margin-top: 10px; }
+.expense-actions .btn { padding: 5px 10px; font-size: 12px; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.stat .v { font-size: 22px; font-weight: 700; }
+.stat .k { font-size: 12.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.stat.total .v { color: var(--down); }
+.stat.paid .v { color: var(--up); }
+.stat.debt .v { color: var(--warn); }
+
+.totals-row { display: flex; gap: 10px; margin-bottom: 16px; }
+.totals-row > .card { flex: 1; margin-bottom: 0; }
+
+.debt-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 15.5px;
+}
+.debt-item:last-child { border-bottom: none; }
+.debt-item .amt { font-weight: 600; color: var(--warn); }
+
+.day-filter { display: flex; gap: 10px; margin-bottom: 16px; }
+.day-filter .input { flex: 1; }
+
+.member-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.member-row:last-child { border-bottom: none; }
+.member-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--surface-2);
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-right: 10px; font-size: 14px; font-weight: 600;
+  border: 1px solid var(--border);
+}
+.member-add { display: flex; gap: 10px; }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 6, 9, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  width: 320px;
+  max-width: 100%;
+  box-shadow: var(--shadow);
+}
+.modal h3 { margin: 0 0 14px; font-size: 16px; }
+.modal .input { margin-bottom: 12px; }
+.modal .hint { font-size: 12px; color: var(--text-dim); margin: 0 0 10px; }
+.modal .err { color: var(--down); font-size: 12px; margin: 0 0 10px; min-height: 16px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 18px;
+  border-radius: 99px;
+  font-size: 14px;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+  z-index: 100;
+}
+.toast.show { opacity: 1; }
+
+@media (max-width: 640px) {
+  .expense-form { grid-template-columns: 1fr 1fr; }
+  .stat-grid { grid-template-columns: 1fr; }
+  #view { padding: 14px 12px 60px; }
+  .tabs { top: 65px; }
+}
+  </style>
   <script type="importmap">
   {
     "imports": {
