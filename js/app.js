@@ -1097,6 +1097,8 @@ function openLoginModal() {
   bindEvents();
   subscribe(() => render());
   subscribeAuth(() => render());
+  // Tự mở khoá nếu có session đã đăng nhập (fire-and-forget, không chặn render).
+  ensureAuth().catch(() => {});
 })();
 
 // ---------------- service worker ----------------

@@ -1,6 +1,6 @@
 // Service worker: cache app shell để lượt truy cập sau nhanh hơn.
 // Khi deploy bản mới: TĂNG CACHE_VERSION để xoá cache cũ trên thiết bị người dùng.
-const CACHE_VERSION = "v5";
+const CACHE_VERSION = "v6";
 const SHELL = ["./", "./index.html", "./js/app.js"];
 
 self.addEventListener("install", (event) => {
@@ -43,19 +43,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // App shell: dùng cache ngay, cập nhật bản mới nền (stale-while-revalidate)
+  // App shell: ưu tiên bản mới nhất từ network, cache chỉ dùng khi offline/lỗi
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const fresh = fetch(request)
-        .then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE_VERSION).then((c) => c.put(request, copy));
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || fresh;
-    })
+    fetch(request)
+      .then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE_VERSION).then((c) => c.put(request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(request))
   );
 });

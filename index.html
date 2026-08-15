@@ -304,7 +304,11 @@ input.input[type="number"] {
 .board-toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .board-toolbar .btn { padding: 7px 12px; font-size: 13px; }
 
-.board { display: flex; gap: 12px; overflow-x: auto; align-items: flex-start; padding-bottom: 8px; }
+.board { display: flex; gap: 12px; overflow-x: auto; align-items: flex-start; padding-bottom: 8px; scrollbar-width: thin; scrollbar-color: var(--border) var(--surface-2); }
+.board::-webkit-scrollbar { height: 10px; }
+.board::-webkit-scrollbar-track { background: var(--surface-2); border-radius: 6px; }
+.board::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+.board::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 .board-col {
   flex: 0 0 250px;
   min-width: 250px;
