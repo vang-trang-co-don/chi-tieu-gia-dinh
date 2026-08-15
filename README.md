@@ -4,7 +4,7 @@ Web app chi tiêu gia đình đơn giản. Vanilla JS + Firebase Realtime Databa
 
 ## Chạy local (offline, không cần Firebase)
 
-Mở `index.html` bằng Live Server (cần HTTP, không phải `file://`). Khi `apiKey` trong `js/config.js` còn trống, app tự dùng `data.json` + `localStorage`.
+Mở `index.html` bằng Live Server (cần HTTP, không phải `file://`). Khi Firebase chưa kết nối được, app tự dùng `data.json` + `localStorage`. Toàn bộ code nằm trong `js/app.js` (CSS inline trong `index.html`).
 
 ```
 npx live-server .
@@ -15,7 +15,7 @@ npx live-server .
 
 1. Firebase Console → Realtime Database → **Create database**.
 2. Import dữ liệu: `data.json` (mục *Import JSON* / *Import file*).
-3. Copy web app config (Firebase Console → Project settings → Your apps → SDK configuration) vào `js/config.js`.
+3. Copy web app config (Firebase Console → Project settings → Your apps → SDK configuration) vào biến `FIREBASE_CONFIG` ở đầu `js/app.js`.
 4. Rule (bắt buộc — app dùng **Firebase Auth**):
 
 ```json

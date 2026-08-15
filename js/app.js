@@ -1,10 +1,443 @@
-import { init, subscribe, getState, syncToServer } from "./db.js";
-import { addExpense, updateExpense, removeExpense, togglePaid, addMember, removeMember } from "./store.js";
-import { isUnlocked, login, logout, initAuth, subscribeAuth, isAuthConfigured } from "./auth.js";
-import { ADMIN_EMAIL, DEFAULT_LOGIN_EMAIL } from "./config.js";
-import { computeBalance, availableMonths, monthStats } from "./calc.js";
-import { fmtMoney, esc, todayStr, fmtDate, groupByDay, memberById, toast, confirmAction } from "./ui.js";
+// ===================== config.js =====================
+// Cấu hình Firebase (project chi-tieu-gia-dinh-a8be5)
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCMHgykNHGUIyFmP61GUOWHM2YgtOmZcKs",
+  authDomain: "chi-tieu-gia-dinh-a8be5.firebaseapp.com",
+  databaseURL: "https://chi-tieu-gia-dinh-a8be5-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "chi-tieu-gia-dinh-a8be5",
+  storageBucket: "chi-tieu-gia-dinh-a8be5.firebasestorage.app",
+  messagingSenderId: "740347248296",
+  appId: "1:740347248296:web:1f9eaebf97745446464c9d"
+};
 
+// Tài khoản admin — vì nhà chỉ có 1 người trả, prefill email để khỏi nhập lại.
+const ADMIN_EMAIL = "chitieu@gmail.com";
+const DEFAULT_LOGIN_EMAIL = ADMIN_EMAIL;
+
+function isFirebaseConfigured() {
+  return Boolean(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.databaseURL && FIREBASE_CONFIG.authDomain);
+}
+
+// ===================== calc.js =====================
+// Tính toán khoản nợ
+// split === "one": target nợ payer toàn bộ amount (nếu chưa paid)
+// split === "equal": mỗi member (kể cả payer) chịu amount / N (trả về cho payer phần của họ)
+
+function expenseDebtors(expense, members) {
+  const payer = members.find((m) => m.id === expense.payer);
+  const debtors = [];
+
+  if (expense.split === "one") {
+    const t = members.find((m) => m.id === expense.target);
+    if (t && t.id !== expense.payer && !(expense.paid && expense.paid[t.id])) {
+      debtors.push({ member: t, amount: expense.amount });
+    }
+    return debtors;
+  }
+
+  // equal: cả nhà, trừ payer
+  const perHead = expense.amount / members.length;
+  for (const m of members) {
+    if (m.id === expense.payer) continue;
+    if (expense.paid && expense.paid[m.id]) continue;
+    debtors.push({ member: m, amount: perHead });
+  }
+  return debtors;
+}
+
+// Nợ ròng theo cặp (A nợ B). Trả mảng [{from, to, amount}] amount > 0 (giá làm tròn).
+function computeBalance(expenses, members) {
+  const owe = {}; // key "fromId->toId" -> amount
+
+  for (const e of expenses) {
+    const payer = members.find((m) => m.id === e.payer);
+    if (!payer) continue;
+    for (const d of expenseDebtors(e, members)) {
+      const key = `${d.member.id}->${payer.id}`;
+      owe[key] = (owe[key] || 0) + d.amount;
+    }
+  }
+
+  // trừ nợ ngược chiều
+  const net = [];
+  const seen = new Set();
+  for (const [key, amt] of Object.entries(owe)) {
+    if (seen.has(key)) continue;
+    const [a, b] = key.split("->");
+    const revKey = `${b}->${a}`;
+    seen.add(key);
+    seen.add(revKey);
+    const diff = Math.round((amt - (owe[revKey] || 0)) * 100) / 100;
+    const from = members.find((m) => m.id === a);
+    const to = members.find((m) => m.id === b);
+    if (!from || !to || diff === 0) continue;
+    if (diff > 0) net.push({ from, to, amount: diff });
+    else net.push({ from: to, to: from, amount: -diff });
+  }
+
+  return net.sort((x, y) => y.amount - x.amount);
+}
+
+function totalsByMonth(expenses, members, month) {
+  const list = expenses.filter((e) => e.date.startsWith(month));
+  return computeBalance(list, members);
+}
+
+function monthStats(expenses, theMonth) {
+  const list = expenses.filter((e) => e.date.startsWith(theMonth));
+  const total = list.reduce((s, e) => s + e.amount, 0);
+  return { list, total, count: list.length };
+}
+
+function availableMonths(expenses) {
+  const set = new Set(expenses.map((e) => e.date.slice(0, 7)));
+  return [...set].sort().reverse();
+}
+
+// ===================== ui.js =====================
+function fmtMoney(n) {
+  return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(n);
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function fmtDate(dateStr) {
+  const [y, m, d] = dateStr.split("-");
+  const date = new Date(y, m - 1, d);
+  const wd = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"][date.getDay()];
+  return `${wd}, ${d}/${m}`;
+}
+
+function toast(msg, ms = 2200) {
+  let el = document.getElementById("toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    el.className = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove("show"), ms);
+}
+
+function confirmAction(msg, cb) {
+  if (window.confirm(msg)) cb();
+}
+
+function groupByDay(expenses) {
+  const map = new Map();
+  for (const e of [...expenses].sort((a, b) => b.date.localeCompare(a.date))) {
+    if (!map.has(e.date)) map.set(e.date, []);
+    map.get(e.date).push(e);
+  }
+  return map;
+}
+
+function memberById(members, id) {
+  return members.find((m) => m.id === id) || { id, name: id };
+}
+
+// ===================== db.js =====================
+const LS_KEY = "family_expense_data";
+const LS_MIGRATED = "family_expense_migrated";
+
+let dbListeners = [];
+let state = null;
+let online = false;
+let unsub = null;
+let fbApp = null;
+let fbDb = null;
+let loaded = false;
+
+async function getApp() {
+  if (fbApp) return fbApp;
+  const { initializeApp } = await import("firebase/app");
+  fbApp = initializeApp(FIREBASE_CONFIG);
+  return fbApp;
+}
+
+async function getDb() {
+  if (fbDb) return fbDb;
+  const { getDatabase } = await import("firebase/database");
+  fbDb = getDatabase(await getApp());
+  return fbDb;
+}
+
+async function seedFromJson() {
+  try {
+    const res = await fetch("data.json");
+    const json = await res.json();
+    return { v: json.data.v || 1, members: json.data.members || [], expenses: json.data.expenses || [] };
+  } catch {
+    return { v: 1, members: [], expenses: [] };
+  }
+}
+
+// RTDB lưu JSON array thành object { "0": ..., "1": ... }.
+// Hàm này đưa lại về array, đồng thời vứt các entry rác (empty/không có title).
+function toArray(obj) {
+  if (Array.isArray(obj)) return obj;
+  if (!obj || typeof obj !== "object") return [];
+  const keys = Object.keys(obj).sort((a, b) => (isNaN(a) ? 1 : isNaN(b) ? -1 : Number(a) - Number(b)));
+  return keys
+    .map((k) => obj[k])
+    .filter((v) => v && typeof v === "object" && (v.id || v.title || v.amount));
+}
+
+function normalize(raw) {
+  if (!raw) return { v: 1, members: [], expenses: [] };
+  return {
+    v: raw.v === 1 ? 1 : undefined,
+    members: toArray(raw.members),
+    expenses: toArray(raw.expenses),
+  };
+}
+
+// Migration dữ liệu cũ: trước đây amount lưu đơn vị ngàn (13 = 13k).
+// Neu thiếu cờ v, nhân toàn bộ amount x1000 để đưa về VND, rồi đánh v=1.
+function migrate(raw) {
+  const n = normalize(raw);
+  if (n.v === 1) return n;
+  return {
+    v: 1,
+    members: n.members,
+    expenses: n.expenses.map((e) => ({ ...e, amount: Math.round((Number(e.amount) || 0) * 1000) })),
+  };
+}
+
+function loadLocal() {
+  const cached = localStorage.getItem(LS_KEY);
+  if (!cached) return null;
+  try {
+    const m = migrate(JSON.parse(cached));
+    return (m.members.length || m.expenses.length) ? m : null;
+  } catch {
+    return null;
+  }
+}
+
+function markMigrated() {
+  localStorage.setItem(LS_MIGRATED, "1");
+}
+
+async function init() {
+  if (loaded) return state;
+  loaded = true;
+
+  try {
+    if (isFirebaseConfigured()) {
+      const { ref, onValue } = await import("firebase/database");
+      const dbref = ref(await getDb(), "data");
+
+      const snap = await new Promise((resolve, reject) => {
+        onValue(dbref, (s) => resolve(s.exists() ? s.val() : null), (e) => reject(e), { onlyOnce: true });
+      });
+
+      online = true;
+
+      // Ưu tiên dữ liệu người dùng đã nhập ở localStorage (bản thật, mới nhất)
+      // nếu chưa migrate xong. Sau khi push lên Firebase thành công sẽ đánh dấu migrated.
+      const local = localStorage.getItem(LS_MIGRATED) ? null : loadLocal();
+
+      if (local) {
+        state = local;
+      } else if (snap) {
+        state = migrate(snap);
+        if (state.v !== 1) await save(state);
+      } else {
+        state = await seedFromJson();
+        await save(state);
+      }
+
+      unsub = onValue(dbref, (s) => {
+        const v = s.exists() ? s.val() : null;
+        if (v) {
+          state = migrate(v);
+          emit();
+        }
+      });
+      emit();
+      return state;
+    }
+  } catch (e) {
+    console.warn("Firebase init failed, falling back to offline:", e);
+    online = false;
+  }
+
+  const cached = localStorage.getItem(LS_KEY);
+  if (cached) {
+    try {
+      const raw = JSON.parse(cached);
+      state = migrate(raw);
+      if (state.v !== 1 && state.v !== undefined) await save(state);
+    } catch { state = null; }
+  }
+  if (!state) state = await seedFromJson();
+  emit();
+  return state;
+}
+
+async function save(data) {
+  state = { v: 1, members: data.members || [], expenses: data.expenses || [] };
+  if (online) {
+    try {
+      const { ref, set } = await import("firebase/database");
+      await set(ref(await getDb(), "data"), state);
+    } catch (e) {
+      console.warn("Firebase write failed:", e);
+    }
+  } else {
+    localStorage.setItem(LS_KEY, JSON.stringify(state));
+  }
+  emit();
+}
+
+function getState() {
+  return state;
+}
+
+function isOnline() {
+  return online;
+}
+
+// Đẩy state hiện tại (có thể từ localStorage) lên Firebase — gọi sau khi login.
+// Thành công thì đánh dấu đã migrate để lần sau không override lại Firebase.
+async function syncToServer() {
+  if (online && state) {
+    try {
+      const { ref, set } = await import("firebase/database");
+      const payload = { v: 1, members: state.members || [], expenses: state.expenses || [] };
+      await set(ref(await getDb(), "data"), payload);
+      markMigrated();
+      localStorage.removeItem(LS_KEY);
+    } catch (e) {
+      console.warn("Firebase sync failed:", e);
+      throw e;
+    }
+  }
+}
+
+function subscribe(cb) {
+  dbListeners.push(cb);
+  return () => { dbListeners = dbListeners.filter((l) => l !== cb); };
+}
+
+function emit() {
+  for (const cb of dbListeners) cb(state);
+}
+
+// ===================== store.js =====================
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+async function addExpense(data) {
+  const s = getState();
+  const expense = { id: genId(), ...data, paid: data.paid || {} };
+  await save({ ...s, expenses: [...s.expenses, expense] });
+  return expense;
+}
+
+async function updateExpense(id, patch) {
+  const s = getState();
+  await save({
+    ...s,
+    expenses: s.expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+  });
+}
+
+async function removeExpense(id) {
+  const s = getState();
+  await save({ ...s, expenses: s.expenses.filter((e) => e.id !== id) });
+}
+
+async function togglePaid(expenseId, memberId) {
+  const s = getState();
+  await save({
+    ...s,
+    expenses: s.expenses.map((e) => {
+      if (e.id !== expenseId) return e;
+      const paid = { ...(e.paid || {}) };
+      if (paid[memberId]) delete paid[memberId];
+      else paid[memberId] = true;
+      return { ...e, paid };
+    }),
+  });
+}
+
+async function addMember(name) {
+  const s = getState();
+  const member = { id: genId(), name };
+  await save({ ...s, members: [...s.members, member] });
+  return member;
+}
+
+async function removeMember(id) {
+  const s = getState();
+  await save({ ...s, members: s.members.filter((m) => m.id !== id) });
+}
+
+async function updateMember(id, name) {
+  const s = getState();
+  await save({ ...s, members: s.members.map((m) => (m.id === id ? { ...m, name } : m)) });
+}
+
+// ===================== auth.js =====================
+let auth = null;
+let signedIn = false;
+let authListeners = [];
+
+async function initAuth() {
+  if (!isFirebaseConfigured()) return;
+  const { initializeApp } = await import("firebase/app");
+  const { getAuth, onAuthStateChanged } = await import("firebase/auth");
+  const app = initializeApp(FIREBASE_CONFIG);
+  auth = getAuth(app);
+  onAuthStateChanged(auth, (u) => {
+    signedIn = !!u;
+    emitAuth();
+  });
+}
+
+function isUnlocked() {
+  return signedIn;
+}
+
+function isAuthConfigured() {
+  return isFirebaseConfigured();
+}
+
+async function login(email, password) {
+  if (!auth) throw new Error("Firebase chưa được cấu hình trong FIREBASE_CONFIG (js/app.js)");
+  const { signInWithEmailAndPassword } = await import("firebase/auth");
+  await signInWithEmailAndPassword(auth, email, password);
+}
+
+async function logout() {
+  if (!auth) return;
+  const { signOut } = await import("firebase/auth");
+  await signOut(auth);
+}
+
+function subscribeAuth(cb) {
+  authListeners.push(cb);
+  return () => { authListeners = authListeners.filter((l) => l !== cb); };
+}
+
+function emitAuth() {
+  for (const cb of authListeners) cb(signedIn);
+}
+
+// ===================== app.js =====================
 let view = "overview";
 let selMonth = null;
 let editingId = null;
@@ -399,7 +832,7 @@ function openLoginModal() {
   modal.innerHTML = `
     <div class="modal">
       <h3>Đăng nhập để chỉnh sửa</h3>
-      <p class="hint">${configured ? "Chỉ admin có tài khoản được cấu hình trên Firebase mới sửa được." : "Chưa cấu hình Firebase trong js/config.js — đăng nhập chưa hoạt động."}</p>
+      <p class="hint">${configured ? "Chỉ admin có tài khoản được cấu hình trên Firebase mới sửa được." : "Chưa cấu hình Firebase trong FIREBASE_CONFIG (js/app.js) — đăng nhập chưa hoạt động."}</p>
       <input class="input" id="loginEmail" type="email" value="${esc(DEFAULT_LOGIN_EMAIL)}" autocomplete="email" ${configured ? "" : "disabled"}>
       <input class="input" id="loginPass" type="password" placeholder="Mật khẩu" autocomplete="current-password" ${configured ? "" : "disabled"}>
       <p class="err" id="loginErr"></p>
