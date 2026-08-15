@@ -395,6 +395,13 @@ async function updateMember(id, name) {
 let auth = null;
 let signedIn = false;
 let authListeners = [];
+let authReady = null;
+
+// Chỉ tải SDK auth khi cần (bấm nút khoá) để không chặn/đẩy chậm quá trình load trang.
+function ensureAuth() {
+  if (!authReady) authReady = initAuth();
+  return authReady;
+}
 
 async function initAuth() {
   if (!isFirebaseConfigured()) return;
@@ -402,9 +409,12 @@ async function initAuth() {
   const { getAuth, onAuthStateChanged } = await import("firebase/auth");
   const app = initializeApp(FIREBASE_CONFIG);
   auth = getAuth(app);
-  onAuthStateChanged(auth, (u) => {
-    signedIn = !!u;
-    emitAuth();
+  await new Promise((resolve) => {
+    onAuthStateChanged(auth, (u) => {
+      signedIn = !!u;
+      emitAuth();
+      resolve();
+    });
   });
 }
 
@@ -762,15 +772,16 @@ function bindEvents() {
     render();
   });
 
-  document.getElementById("lockBtn").addEventListener("click", () => {
+  document.getElementById("lockBtn").addEventListener("click", async () => {
     if (isUnlocked()) {
-      logout().then(() => {
-        render();
-        toast("Đã đăng xuất");
-      });
-    } else {
-      openLoginModal();
+      await logout();
+      render();
+      toast("Đã đăng xuất");
+      return;
     }
+    await ensureAuth();
+    if (isUnlocked()) render();
+    else openLoginModal();
   });
 
   $view.addEventListener("click", async (e) => {
@@ -896,7 +907,6 @@ function openLoginModal() {
   bindEvents();
   subscribe(() => render());
   subscribeAuth(() => render());
-  initAuth().catch((e) => console.warn("auth init failed", e));
 })();
 
 // ---------------- service worker ----------------
