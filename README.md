@@ -33,6 +33,10 @@ npx live-server .
 >
 > Bước thêm: Firebase Console → Authentication → Sign-in method → bật **Email/Password** → Users → Add user.
 
+## Service worker (cache)
+
+`sw.js` cache app shell để truy cập lại nhanh hơn. **Khi deploy bản mới, nhớ tăng `CACHE_VERSION` trong `sw.js`** (ví dụ `v1` → `v2`) để xoá cache cũ trên thiết bị người dùng.
+
 ## Deploy GitHub Pages
 
 ```

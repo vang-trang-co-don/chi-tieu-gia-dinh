@@ -898,3 +898,10 @@ function openLoginModal() {
   subscribeAuth(() => render());
   initAuth().catch((e) => console.warn("auth init failed", e));
 })();
+
+// ---------------- service worker ----------------
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  });
+}
