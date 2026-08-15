@@ -202,16 +202,35 @@ function normalize(raw) {
   };
 }
 
-// Migration dữ liệu cũ: trước đây amount lưu đơn vị ngàn (13 = 13k).
-// Neu thiếu cờ v, nhân toàn bộ amount x1000 để đưa về VND, rồi đánh v=1.
+// Tách record split:"equal" thành N-1 record (mỗi người nợ 1 record)
+// để dữ liệu đồng nhất "1 record = 1 khoản nợ". Idempotent.
+function expandEqual(expenses, members) {
+  if (!members.length) return expenses;
+  const out = [];
+  for (const e of expenses) {
+    if (e.split !== "equal") { out.push(e); continue; }
+    const shares = splitEqualShares(e.amount, members.length);
+    let i = 0;
+    for (const m of members) {
+      if (m.id === e.payer) continue;
+      const paid = (e.paid && e.paid[m.id]) ? { [m.id]: true } : {};
+      out.push({ ...e, id: `${e.id}_${m.id}`, split: "one", target: m.id, amount: shares[i++], paid });
+    }
+  }
+  return out;
+}
+
+// Migration dữ liệu cũ:
+// 1. Trước đây amount lưu đơn vị ngàn (13 = 13k) — thiếu cờ v thì nhân x1000.
+// 2. Tách split:"equal" thành N-1 record per-member.
 function migrate(raw) {
   const n = normalize(raw);
-  if (n.v === 1) return n;
-  return {
-    v: 1,
-    members: n.members,
-    expenses: n.expenses.map((e) => ({ ...e, amount: Math.round((Number(e.amount) || 0) * 1000) })),
-  };
+  let expenses = n.expenses;
+  if (n.v !== 1) {
+    expenses = expenses.map((e) => ({ ...e, amount: Math.round((Number(e.amount) || 0) * 1000) }));
+  }
+  expenses = expandEqual(expenses, n.members);
+  return { v: 1, members: n.members, expenses };
 }
 
 function loadLocal() {
@@ -251,10 +270,11 @@ async function init() {
       if (local) {
         state = local;
       } else if (snap) {
+        const hadEqual = toArray(snap.expenses).some((e) => e && e.split === "equal");
         state = migrate(snap);
-        if (state.v !== 1) await save(state);
+        if (state.v !== 1 || hadEqual) await save(state);
       } else {
-        state = await seedFromJson();
+        state = migrate(await seedFromJson());
         await save(state);
       }
 
@@ -277,11 +297,12 @@ async function init() {
   if (cached) {
     try {
       const raw = JSON.parse(cached);
+      const hadEqual = toArray(raw.expenses).some((e) => e && e.split === "equal");
       state = migrate(raw);
-      if (state.v !== 1 && state.v !== undefined) await save(state);
+      if ((state.v !== 1 && state.v !== undefined) || hadEqual) await save(state);
     } catch { state = null; }
   }
-  if (!state) state = await seedFromJson();
+  if (!state) state = migrate(await seedFromJson());
   emit();
   return state;
 }
@@ -451,6 +472,7 @@ function emitAuth() {
 let view = "overview";
 let selMonth = null;
 let editingId = null;
+let hidePaid = true;
 
 function pickUnit(amount) {
   if (amount && amount % 1000000 === 0) return { by: 1000000, label: "triệu" };
@@ -465,6 +487,7 @@ function render() {
   renderLock();
   if (view === "overview") renderOverview();
   else if (view === "expenses") renderExpenses();
+  else if (view === "debts") renderDebts();
   else renderMembers();
 }
 
@@ -672,10 +695,32 @@ async function onFormSubmit(ev) {
     }
     toast(`Đã thêm ${ids.length} khoản chi`);
   } else {
-    await addExpense({ title, amount: money, date, payer, split });
-    toast("Đã thêm");
+    const members = getState().members;
+    const shares = splitEqualShares(money, members.length);
+    let i = 0;
+    for (const m of members) {
+      if (m.id === payer) continue;
+      await addExpense({ title, amount: shares[i++], date, payer, split: "one", target: m.id });
+    }
+    toast(`Đã thêm ${shares.length} khoản chi (chia đều)`);
   }
   render();
+}
+
+// Chia đều: money / N cho mỗi người nợ (N-1 record), record cuối bù phần lẻ
+// để tổng = money − phần người trả (không lệch đồng).
+function splitEqualShares(money, n) {
+  if (n < 2) return [money];
+  const share = Math.round(money / n);
+  const debtors = n - 1;
+  const shares = [];
+  let remaining = money - share;
+  for (let i = 0; i < debtors; i++) {
+    if (i === debtors - 1) shares.push(remaining);
+    else shares.push(share);
+    remaining -= share;
+  }
+  return shares;
 }
 
 function selectedMembers() {
@@ -762,6 +807,77 @@ function renderMembers() {
   });
 }
 
+// ---------------- debts board ----------------
+function debtsForMonth(list, members) {
+  const map = new Map(members.map((m) => [m.id, []]));
+  for (const e of list) {
+    const payer = memberById(members, e.payer);
+    const debtors = e.split === "one"
+      ? (e.target && e.target !== e.payer ? [{ member: memberById(members, e.target), amount: e.amount, paid: !!(e.paid && e.paid[e.target]) }] : [])
+      : members.filter((m) => m.id !== e.payer).map((m) => ({
+          member: m,
+          amount: members.length ? e.amount / members.length : 0,
+          paid: !!(e.paid && e.paid[m.id]),
+        }));
+    for (const d of debtors) {
+      if (map.has(d.member.id)) map.get(d.member.id).push({ e, payer, amount: d.amount, paid: d.paid });
+    }
+  }
+  return map;
+}
+
+function renderDebts() {
+  const s = getState();
+  const { expenses, members } = s;
+  const unlocked = isUnlocked();
+  const months = availableMonths(expenses);
+  if (selMonth && !months.includes(selMonth)) selMonth = null;
+  if (!selMonth) selMonth = months[0] || todayStr().slice(0, 7);
+
+  const list = expenses.filter((e) => e.date.startsWith(selMonth));
+  const byMember = debtsForMonth(list, members);
+
+  const colHtml = members.map((m) => {
+    const items = byMember.get(m.id) || [];
+    const shown = hidePaid ? items.filter((d) => !d.paid) : items;
+    const total = shown.reduce((t, d) => t + d.amount, 0);
+    const cards = shown.length
+      ? shown.map((d) => {
+          const btn = unlocked
+            ? `<button class="pay-btn ${d.paid ? "done" : ""}" data-pay="${d.e.id}" data-mem="${m.id}" title="${d.paid ? "Huỷ đã trả" : "Đánh dấu đã trả"}">${d.paid ? "✓" : "○"}</button>`
+            : "";
+          return `
+            <div class="debt-card ${d.paid ? "paid" : ""}">
+              <div class="dc-top">
+                <span class="dc-title">${esc(d.e.title)}</span>${btn}
+              </div>
+              <div class="dc-meta">nợ ${esc(d.payer.name)} · ${esc(fmtDate(d.e.date))}</div>
+              <div class="dc-amt">${fmtMoney(d.amount)}</div>
+            </div>`;
+        }).join("")
+      : `<div class="col-empty">${hidePaid ? "✅ không còn nợ" : "không có nợ"}</div>`;
+    return `
+      <div class="board-col">
+        <div class="col-head">
+          <span class="member-avatar">${esc(m.name[0] || "?")}</span>
+          <span class="col-name">${esc(m.name)}</span>
+          <span class="col-total">${shown.length ? "nợ " + fmtMoney(total) : ""}</span>
+        </div>
+        ${cards}
+      </div>`;
+  }).join("");
+
+  $view.innerHTML = `
+    <div class="day-filter">
+      <select class="input" id="monthSel" aria-label="Chọn tháng">
+        ${months.map((m) => `<option value="${m}" ${m === selMonth ? "selected" : ""}>Tháng ${m.slice(5)}/${m.slice(0, 4)}</option>`).join("")}
+      </select>
+      <button class="btn" data-hide-paid>${hidePaid ? "Hiện đã trả" : "Ẩn đã trả"}</button>
+    </div>
+    ${members.length ? `<div class="board">${colHtml}</div>` : '<div class="empty">Chưa có thành viên</div>'}
+  `;
+}
+
 // ---------------- events ----------------
 function bindEvents() {
   document.getElementById("tabs").addEventListener("click", (e) => {
@@ -785,6 +901,12 @@ function bindEvents() {
   });
 
   $view.addEventListener("click", async (e) => {
+    const hp = e.target.closest("[data-hide-paid]");
+    if (hp) {
+      hidePaid = !hidePaid;
+      render();
+      return;
+    }
     const payBtn = e.target.closest("[data-pay]");
     if (payBtn) {
       await togglePaid(payBtn.dataset.pay, payBtn.dataset.mem);
