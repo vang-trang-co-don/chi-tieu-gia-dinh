@@ -513,7 +513,7 @@ function renderOverview() {
 
   $view.innerHTML = `
     <div class="day-filter">
-      <select class="input" id="monthSel">
+      <select class="input" id="monthSel" aria-label="Chọn tháng">
         ${months.map((m) => `<option value="${m}" ${m === selMonth ? "selected" : ""}>Tháng ${m.slice(5)}/${m.slice(0, 4)}</option>`).join("")}
       </select>
     </div>
@@ -524,12 +524,12 @@ function renderOverview() {
     </div>
 
     <div class="card">
-      <h3 class="card-title">Chi theo người</h3>
+      <h2 class="card-title">Chi theo người</h2>
       ${paidHtml || '<div class="empty">Chưa có dữ liệu</div>'}
     </div>
 
     <div class="card">
-      <h3 class="card-title">Nợ ròng chưa thanh toán</h3>
+      <h2 class="card-title">Nợ ròng chưa thanh toán</h2>
       ${netHtml}
     </div>
   `;
@@ -547,7 +547,7 @@ function renderExpenses() {
   if (groups.size) {
     listHtml = [...groups].map(([date, items]) => `
       <div class="day-group">
-        <h3 class="day-title">${esc(fmtDate(date))}</h3>
+        <h2 class="day-title">${esc(fmtDate(date))}</h2>
         ${items.map((e) => renderExpense(e, members, unlocked)).join("")}
       </div>`).join("");
   }
@@ -749,7 +749,7 @@ function renderMembers() {
   $view.innerHTML = `
     ${add}
     <div class="card">
-      <h3 class="card-title">Thành viên (${s.members.length})</h3>
+      <h2 class="card-title">Thành viên (${s.members.length})</h2>
       ${rows}
     </div>`;
 
