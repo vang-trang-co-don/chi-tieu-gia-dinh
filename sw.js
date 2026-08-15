@@ -1,6 +1,6 @@
 // Service worker: cache app shell để lượt truy cập sau nhanh hơn.
 // Khi deploy bản mới: TĂNG CACHE_VERSION để xoá cache cũ trên thiết bị người dùng.
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const SHELL = ["./", "./index.html", "./js/app.js"];
 
 self.addEventListener("install", (event) => {
